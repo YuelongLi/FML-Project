@@ -25,7 +25,7 @@ parser.add_argument('--lr', type=float, default=0.1, metavar='LR',
                     help='learning rate')
 parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
                     help='SGD momentum')
-parser.add_argument('--no-cuda', action='store_true', default=False,
+parser.add_argument('--no-cuda', action='store_true', default=True,
                     help='disables CUDA training')
 parser.add_argument('--epsilon', default=0.031,
                     help='perturbation')
@@ -68,24 +68,41 @@ trainset = torchvision.datasets.CIFAR10(root='../data', train=True, download=Tru
 train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size, shuffle=True, **kwargs)
 testset = torchvision.datasets.CIFAR10(root='../data', train=False, download=True, transform=transform_test)
 test_loader = torch.utils.data.DataLoader(testset, batch_size=args.test_batch_size, shuffle=False, **kwargs)
+# torch.set_num_threads(2)
 
-
-def train(args, model, device, train_loader, optimizer, epoch):
+import matplotlib.pyplot as plt
+torch.Tensor.ndim = property(lambda self: len(self.shape)) 
+def train(args, model, device, train_loader, optimizer, epoch, adversarial=True):
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
 
         optimizer.zero_grad()
+        loss = 0
+        if adversarial:
+            # calculate robust loss
+            loss = trades_loss(model=model,
+                            x_natural=data,
+                            y=target,
+                            optimizer=optimizer,
+                            step_size=args.step_size,
+                            epsilon=args.epsilon,
+                            perturb_steps=args.num_steps,
+                            beta=args.beta)
+        else:
+            # print(f"logits: {model(data)}")
+            # print(f"target: {target}")
+            # pred_probab = nn.Softmax(dim=1)(model(data))
+            # y_pred1 = pred_probab.argmax(1)
+            # plt.scatter(pred_probab.tolist()[0][0], pred_probab.tolist()[0][1], c=y_pred1)
+            # plt.scatter(pred_probab.tolist()[0][2], pred_probab.tolist()[0][3], c=2)
+            # plt.plot(pred_probab.tolist())  # Works now
+            # plt.show()
+            
+            # print(f"classified: {pred_probab.tolist()[0]}")
+            # exit()
+            loss = F.cross_entropy(model(data), target)
 
-        # calculate robust loss
-        loss = trades_loss(model=model,
-                           x_natural=data,
-                           y=target,
-                           optimizer=optimizer,
-                           step_size=args.step_size,
-                           epsilon=args.epsilon,
-                           perturb_steps=args.num_steps,
-                           beta=args.beta)
         loss.backward()
         optimizer.step()
 
@@ -100,6 +117,7 @@ def eval_train(model, device, train_loader):
     model.eval()
     train_loss = 0
     correct = 0
+    print("called eval")
     with torch.no_grad():
         for data, target in train_loader:
             data, target = data.to(device), target.to(device)
@@ -157,20 +175,20 @@ def main():
         adjust_learning_rate(optimizer, epoch)
 
         # adversarial training
-        train(args, model, device, train_loader, optimizer, epoch)
+        train(args, model, device, train_loader, optimizer, epoch, adversarial=False)
 
         # evaluation on natural examples
         print('================================================================')
-        eval_train(model, device, train_loader)
-        eval_test(model, device, test_loader)
+        # eval_train(model, device, train_loader)
+        # eval_test(model, device, test_loader)
         print('================================================================')
 
         # save checkpoint
         if epoch % args.save_freq == 0:
-            torch.save(model.state_dict(),
-                       os.path.join(model_dir, 'model-wideres-epoch{}.pt'.format(epoch)))
+            torch.save(model,
+                       os.path.join(model_dir, 'model-wideres-epoch3{}.pt'.format(epoch)))
             torch.save(optimizer.state_dict(),
-                       os.path.join(model_dir, 'opt-wideres-checkpoint_epoch{}.tar'.format(epoch)))
+                       os.path.join(model_dir, 'opt-wideres-checkpoint_epoch3{}.tar'.format(epoch)))
 
 
 if __name__ == '__main__':
